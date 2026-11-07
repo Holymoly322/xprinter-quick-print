@@ -63,7 +63,7 @@ jobs:
       GH_REPO: ${{ github.repository }}
     steps:
       - name: Download verified build
-        run: gh run download "$GITHUB_RUN_ID" --name XprinterQuickPrint-Windows-x64-unsigned --dir dist
+        run: gh run download "$GITHUB_RUN_ID" --name XprinterQuickPrint-Windows-x64-unsigned --dir .
       - name: Publish release if absent
         run: |
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
