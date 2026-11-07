@@ -1,0 +1,28 @@
+[
+  {
+    "name": "JOPA",
+    "driver": null,
+    "width": 44.0,
+    "height": 23.0,
+    "margins": [0.0, 0.0, 0.0, 0.0],
+    "offset": [0.0, 0.0],
+    "rotation": 0,
+    "mode": "Fit",
+    "percent": 100.0,
+    "centered": true,
+    "calibration": [0.0, 0.0]
+  },
+  {
+    "name": "HH",
+    "driver": null,
+    "width": 40.0,
+    "height": 24.0,
+    "margins": [1.0, 0.0, 1.0, 0.0],
+    "offset": [0.0, 0.0],
+    "rotation": 0,
+    "mode": "Fit",
+    "percent": 100.0,
+    "centered": true,
+    "calibration": [0.0, 0.0]
+  }
+]

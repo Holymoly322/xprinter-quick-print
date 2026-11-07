@@ -1,0 +1,30 @@
+{
+  "licenses": [
+    {
+      "sha256": "1F90908C18012716FF9965086920050B7D31AD2A9DA41E3473A6A5A46E9C908F",
+      "crate": "fontconfig-parser",
+      "version": "0.5.8",
+      "license": "LICENSE"
+    },
+    {
+      "sha256": "249FDB6694467DD615B259F7DDDE07BE3F8AE5A72CECEBB0E24F6629AF4215FE",
+      "crate": "toml",
+      "version": "1.2.0+spec-1.1.0",
+      "license": "LICENSE-APACHE"
+    },
+    {
+      "sha256": "6EFB0476A1CC085077ED49357026D8C173BF33017278EF440F222FB9CBCB66E6",
+      "crate": "toml",
+      "version": "1.2.0+spec-1.1.0",
+      "license": "LICENSE-MIT"
+    },
+    {
+      "sha256": "3564DA09711C475669C15346BB25A1530A7DE683C13F4A51489C15A6D74438FA",
+      "crate": "winresource",
+      "version": "0.1.34",
+      "license": "LICENSE"
+    }
+  ],
+  "lock_sha256": "D79821728C7F0BCEA1D6EC3730B063DD382AA7D6C428D90B0B49F25E95ACF0E6",
+  "baseline_sha256": "033BD7DE77BDE085DED661DBD1012B18B59B6FDDD3235C50891C984525FA6112"
+}

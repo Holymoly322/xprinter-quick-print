@@ -1,0 +1,319 @@
+import { VerticalBox, HorizontalBox, Button, ComboBox, SpinBox, LineEdit, CheckBox, ScrollView, ListView, Slider, AboutSlint, Palette } from "std-widgets.slint";
+export struct QueueRow { title:string, copies:int, status:string, sent:bool }
+export component MainWindow inherits Window {
+ icon:@image-url("../assets/icons/app.svg");
+ title: "Xprinter Quick Print"; preferred-width:1200px;preferred-height:800px;min-width:960px;min-height:650px;
+ in-out property <bool> dark:true;
+ in-out property <bool> about:false;
+ in-out property <bool> manage-presets:false;
+ in-out property <bool> queue-expanded:false;
+ in-out property <int> queue-count:0;
+ in-out property <int> queue-ready-count:0;
+ in-out property <[QueueRow]> queue-rows;
+ callback queue-copies-edited(int,int);
+ callback copies-edited(int);
+ in-out property <bool> history-visible:false;
+ in-out property <[string]> history-items;
+ init=>{Palette.color-scheme=root.dark?ColorScheme.dark:ColorScheme.light;}
+ changed dark=>{Palette.color-scheme=root.dark?ColorScheme.dark:ColorScheme.light;}
+ background: dark ? #151922 : #eff2f8;
+ default-font-family:"Segoe UI";default-font-size:14px;
+ in-out property <image> preview;
+ in-out property <string> filename:"Перетащите PDF или выберите файл";
+ in-out property <string> status:"Готово";
+ in-out property <string> printer-info:"Принтер не выбран";
+ in-out property <[string]> printers;
+ in-out property <[string]> presets;
+ in-out property <string> printer;
+ in-out property <int> preset-index:0;
+ in-out property <int> copies:0;
+ in-out property <string> app-version;
+ callback add-copies(int);callback create-shortcuts();
+ in-out property <int> page:1;
+ in-out property <int> pages:1;
+ in-out property <length> pan-x:0px;
+ in-out property <length> pan-y:0px;
+ private property <length> start-x;
+ private property <length> start-y;
+ in-out property <float> zoom:1;
+ in-out property <bool> grid:false;
+ in-out property <bool> busy:false;
+ in-out property <bool> batch-active:false;
+ in-out property <bool> batch-paused:false;
+ in-out property <int> queue-pause-seconds:5;
+ in-out property <int> queue-wait-seconds:0;
+ in-out property <string> queue-progress;
+ callback queue-pause-changed(int);
+ changed queue-pause-seconds => { root.queue-pause-changed(root.queue-pause-seconds); }
+ in-out property <bool> editor:false;
+ in-out property <bool> setup:false;
+ in-out property <[string]> queue-items;
+ in-out property <int> queue-index:0;
+ in-out property <string> page-range:"";
+ in-out property <string> queue-text:"Очередь пуста";
+ in-out property <string> preset-json;
+ callback new-preset();callback default-preset();callback select-job(int);callback open();callback refresh();callback select-printer(string);callback select-preset(int);
+ callback render();callback print();callback edit();callback save(string,bool);callback remove-preset();callback duplicate();callback import-presets();callback export-presets();
+ callback setup-action(int);callback queue-action(int);callback theme();
+ private property <color> ink:dark ? #e7ecf5 : #172236;
+ private property <color> surface:dark ? #202735 : #ffffff;
+    forward-focus: shortcuts;
+    shortcuts := FocusScope {
+        enabled: !root.editor;
+        key-pressed(event) => {
+            if event.modifiers.control {
+                if event.text == "o" || event.text == "щ" { root.open(); return accept; }
+                if event.text == "p" || event.text == "з" { root.print(); return accept; }
+                if event.text == "0" { root.zoom = 1; root.pan-x = 0px; root.pan-y = 0px; return accept; }
+                if event.text == "+" || event.text == "=" { root.zoom = min(4, root.zoom + 0.2); return accept; }
+                if event.text == "-" { root.zoom = max(0.2, root.zoom - 0.2); return accept; }
+            }
+            if event.text == Key.Delete { root.queue-action(1); return accept; }
+            return reject;
+        }
+        VerticalBox {
+            padding: 20px;
+            spacing: root.queue-expanded ? 8px : 16px;
+            HorizontalBox {
+                height: 44px;
+                Text { text: "Xprinter"; color: root.ink; font-size: 26px; font-weight: 700; }
+                Text { text: "QUICK PRINT"; color: #8797b2; vertical-alignment: center; }
+                Rectangle { horizontal-stretch: 1; }
+                Button { text: "История"; clicked => { root.history-visible = true; } }
+                Button { text: "О программе"; clicked => { root.about = true; } }
+                Button { text: "Настроить принтер"; enabled:!root.busy; clicked => { root.setup = true; } }
+                Button { icon:root.dark?@image-url("../assets/icons/sun.svg"):@image-url("../assets/icons/moon.svg");accessible-label:"Переключить тему";max-width:44px;clicked=>{root.theme();} }
+            }
+            HorizontalBox {
+                spacing: 20px;
+                Rectangle {
+                    horizontal-stretch: 65;
+                    background: root.surface;
+                    border-radius: 14px;
+                    VerticalBox {
+                        padding: 16px;
+                        spacing: 12px;
+                        HorizontalBox {
+                            Button { text: "−"; max-width: 36px; clicked => { root.zoom = max(0.2, root.zoom - 0.2); } }
+                            Text { text: round(root.zoom * 100) + "%"; color: root.ink; vertical-alignment: center; max-width: 60px; }
+                            Button { text: "+"; max-width: 36px; clicked => { root.zoom = min(4, root.zoom + 0.2); } }
+                            Button { text: "Вписать"; max-width: 100px; clicked => { root.zoom = 1; root.pan-x = 0px; root.pan-y = 0px; } }
+                            CheckBox { text: "Сетка"; checked <=> root.grid; }
+                            Rectangle { horizontal-stretch: 1; }
+                        }
+                        canvas := ScrollView {
+                            viewport-width: self.visible-width * max(1, root.zoom);
+                            viewport-height: self.visible-height * max(1, root.zoom);
+                            Rectangle {
+                                x: 0px; y: 0px;
+                                width: canvas.viewport-width;
+                                height: canvas.viewport-height;
+                                background: root.dark ? #10141c : #d9e0eb;
+                                clip: true;
+                                Image {
+                                    source: root.preview;
+                                    width: (canvas.visible-width - 40px) * root.zoom;
+                                    height: (canvas.visible-height - 40px) * root.zoom;
+                                    x: (parent.width - self.width) / 2 + root.pan-x;
+                                    y: (parent.height - self.height) / 2 + root.pan-y;
+                                    image-fit: contain;
+                                }
+                                TouchArea {
+                                    pointer-event(event) => {
+                                        if event.kind == PointerEventKind.down { root.start-x = root.pan-x; root.start-y = root.pan-y; }
+                                    }
+                                    moved => {
+                                        if self.pressed { root.pan-x = root.start-x + self.mouse-x - self.pressed-x; root.pan-y = root.start-y + self.mouse-y - self.pressed-y; }
+                                    }
+                                }
+                                if root.grid: Rectangle {
+                                    x: 0px; y: 0px; width: parent.width; height: parent.height;
+                                    for i in 10: Rectangle { x: parent.width / 10 * i; width: 1px; height: parent.height; background: #448a9bb0; }
+                                    for j in 10: Rectangle { y: parent.height / 10 * j; height: 1px; width: parent.width; background: #448a9bb0; }
+                                }
+                            }
+                        }
+                        HorizontalBox {
+                            Button { text: "‹"; max-width: 40px; enabled: root.page > 1; clicked => { root.page -= 1; root.render(); } }
+                            Text { text: "Страница " + root.page + " / " + root.pages; color: root.ink; horizontal-alignment: center; vertical-alignment: center; horizontal-stretch: 1; }
+                            Button { text: "›"; max-width: 40px; enabled: root.page < root.pages; clicked => { root.page += 1; root.render(); } }
+                        }
+                        Text { text: "Рамка — этикетка, пунктир — поля пресета. Аппаратные поля уточняются драйвером; выполните калибровку."; color: #8797b2; wrap: word-wrap; font-size: 12px; }
+                    }
+                }
+                Rectangle {
+                    horizontal-stretch: 35;
+                    background: root.surface;
+                    border-radius: 14px;
+                    VerticalBox {
+                        padding: 18px;
+                        spacing: 10px;
+                        ScrollView {
+                            VerticalBox {
+                                spacing: 8px;
+                                HorizontalBox {
+                                    Text { text: "ФАЙЛ PDF"; color: #8797b2; font-weight: 600; vertical-alignment: center; horizontal-stretch: 1; }
+                                    Button { text: "Открыть…"; clicked => { root.open(); } }
+                                }
+                                Text { text: root.filename; color: root.ink; wrap: word-wrap; overflow: elide; max-height: 34px; }
+                                Text { text: "ПРИНТЕР"; color: #8797b2; }
+                                HorizontalBox {
+                                    ComboBox { enabled:!root.busy;model: root.printers; current-value <=> root.printer; horizontal-stretch: 1; selected(value) => { root.select-printer(value); } }
+                                    Button { icon:@image-url("../assets/icons/refresh.svg");accessible-label:"Обновить список принтеров";max-width:40px;clicked=>{root.refresh();} }
+                                }
+                                Text { text: root.printer-info; color: #8797b2; wrap: word-wrap; overflow: elide; max-height: 34px; font-size: 12px; }
+                                HorizontalBox {
+                                    Text { text: "ПРЕСЕТ"; color: #8797b2; vertical-alignment: center; horizontal-stretch: 1; }
+                                    Button { text: "Управление"; enabled:!root.busy; clicked => { root.manage-presets = true; } }
+                                }
+                                ComboBox { enabled:!root.busy;model: root.presets; current-index <=> root.preset-index; selected(value) => { root.select-preset(self.current-index); } }
+                                HorizontalBox { Button { text: "Изменить"; enabled:!root.busy; clicked => { root.edit(); } } Button { enabled:!root.busy;text: "Импорт"; clicked => { root.import-presets(); } } Button { enabled:!root.busy;text: "Экспорт"; clicked => { root.export-presets(); } } }
+                            }
+                        }
+                        HorizontalBox {
+                            Text { text: "КОПИИ"; color: #8797b2; vertical-alignment: center; horizontal-stretch: 1; }
+                            Button { text: "Сброс"; enabled:!root.busy;max-width:64px; clicked=>{root.copies=0;root.copies-edited(0);} } SpinBox { enabled:!root.busy;minimum: 0; maximum: 9999; max-width:130px; value <=> root.copies;edited(v)=>{root.copies-edited(v);} }
+                        }
+                        HorizontalBox { for n in [25, 50, 100]: Button { enabled:!root.busy; text: "+"+n; clicked => { root.add-copies(n); } } }
+                        if root.pages > 1: LineEdit { placeholder-text: "Страницы: все или 1-3,5"; text <=> root.page-range; }
+                        Button { text: root.batch-paused ? "Очередь на паузе" : root.busy ? "Передача…" : "ПЕЧАТЬ PDF"; primary: true; preferred-height: 46px; enabled: !root.busy && root.copies>0; clicked => { root.print(); } }
+                        if root.busy && !root.batch-active: Button { text: "Отменить передачу"; clicked => { root.queue-action(7); } }
+                        Text { text: root.status; color: root.ink; wrap: word-wrap; overflow: elide; max-height: 54px; }
+                    }
+                }
+            }
+            HorizontalBox {
+                padding-top:0px;padding-bottom:0px;
+                Button { text: "Добавить в очередь"; enabled:!root.busy; clicked => { root.queue-expanded = true; root.queue-action(0); } }
+                Button { text: root.queue-expanded ? "Скрыть очередь" : "Очередь · " + root.queue-count; enabled:!root.batch-active; clicked => { root.queue-expanded = !root.queue-expanded; } }
+                if root.queue-expanded && !root.batch-active: Button { text: "Убрать выбранный"; enabled:!root.busy; clicked => { root.queue-action(1); } }
+                if root.queue-expanded && !root.batch-active: Button { text: "Печать очереди · " + root.queue-ready-count; enabled: !root.busy && root.queue-ready-count>0; clicked => { root.queue-action(2); } }
+                if root.batch-paused: Button { text: root.queue-wait-seconds>0 ? "Продолжить · " + root.queue-wait-seconds + " с" : "Продолжить"; primary:true; enabled:root.queue-wait-seconds==0; clicked=>{root.queue-action(8);} }
+                if root.batch-active: Button { text:"Остановить очередь"; clicked=>{root.queue-action(7);} }
+            }
+            if root.queue-expanded: HorizontalBox {
+                padding-top:0px;padding-bottom:0px;
+                Text { text:"Минимальная пауза, с";color:root.ink;vertical-alignment:center; }
+                SpinBox { minimum:0;maximum:300;value<=>root.queue-pause-seconds;enabled:!root.busy;max-width:100px; }
+                Text { text:"Следующая партия — только по кнопке «Продолжить»";color:#8797b2;wrap:word-wrap;horizontal-stretch:1; }
+            }
+            if root.queue-expanded: HorizontalBox {
+                padding-top:0px;padding-bottom:0px;
+                Button { text: "↑";enabled:!root.busy; clicked => { root.queue-action(3); } }
+                Button { text: "↓";enabled:!root.busy; clicked => { root.queue-action(4); } }
+                Button { text: "Применить настройки";enabled:!root.busy; clicked => { root.queue-action(5); } }
+                Button { text: "Копии всем: " + root.copies;enabled:!root.busy && root.copies>0;clicked=>{root.queue-action(9);} }
+            }
+            if root.queue-expanded: ListView {
+                vertical-stretch:0;
+                preferred-height:min(132px,max(44px,root.queue-count*44px));
+                for row[index] in root.queue-rows: Rectangle {
+                    height:44px;background:index==root.queue-index?root.surface:transparent;border-radius:6px;
+                    HorizontalBox { padding:4px;spacing:8px;
+                        Text { text:row.title;color:root.ink;horizontal-stretch:1;overflow:elide;vertical-alignment:center; }
+                        Text { text:row.copies==0?"Задайте количество":row.status;color:row.copies==0?#e9a34a:#8797b2;vertical-alignment:center;overflow:elide;max-width:230px; }
+                        SpinBox { minimum:0;maximum:9999;value:row.copies;max-width:130px;enabled:!root.busy && !row.sent;edited(v)=>{root.queue-copies-edited(index,v);} }
+                        Button { text:"Выбрать";enabled:!root.busy;clicked=>{root.queue-index=index;root.select-job(index);} }
+                    }
+                }
+            }
+            if root.queue-expanded && root.queue-progress!="": Text { text:root.queue-progress;color:root.ink;wrap:word-wrap; }
+            if root.queue-expanded: Text { text: root.queue-text; color: #8797b2; wrap: word-wrap; }
+            Text { text: "Powered by Slint • PDFium • Windows GDI"; color: #8797b2; font-size: 11px; }
+        }
+    }
+    if root.manage-presets: Rectangle {
+        x: parent.width - 420px; y: 90px; width: 380px; height: 450px;
+        background: root.surface; border-radius: 14px; border-width: 1px; border-color: #617a9f;
+        VerticalBox {
+            padding: 22px; spacing: 12px;
+            Text { text: "Управление пресетами"; color: root.ink; font-size: 20px; }
+            Button { text: "Создать"; clicked => { root.manage-presets = false; root.new-preset(); } }
+            Button { text: "Дублировать"; clicked => { root.manage-presets = false; root.duplicate(); } }
+            Button { text: "Выбрать по умолчанию"; clicked => { root.manage-presets = false; root.default-preset(); } }
+            HorizontalBox { Button { enabled:!root.busy;text: "Импорт"; clicked => { root.manage-presets = false; root.import-presets(); } } Button { enabled:!root.busy;text: "Экспорт"; clicked => { root.manage-presets = false; root.export-presets(); } } }
+            Button { text: "Удалить выбранный"; clicked => { root.manage-presets = false; root.remove-preset(); } }
+            Button { text: "Закрыть"; clicked => { root.manage-presets = false; } }
+        }
+    }
+ if root.history-visible:Rectangle{x:40px;y:60px;width:parent.width - 80px;height:parent.height - 100px;background:root.surface;border-radius:14px;VerticalBox{padding:22px;Text{text:"История отправки • последние 200 заданий";color:root.ink;font-size:22px;}ScrollView{VerticalBox{for item in root.history-items:Text{text:item;color:root.ink;wrap:word-wrap;}}}Button{text:"Закрыть";clicked=>{root.history-visible=false;}}}}
+ if root.about:Rectangle{x:parent.width/2 - 220px;y:parent.height/2 - 220px;width:440px;height:440px;background:root.surface;border-radius:14px;VerticalBox{padding:20px;Text{text:"Xprinter Quick Print "+root.app-version;color:root.ink;font-size:22px;}Text{text:"MIT • PDFium • Windows GDI";color:#8797b2;}AboutSlint{}Button{text:"Создать ярлыки: рабочий стол и Пуск";clicked=>{root.create-shortcuts();}}Text{text:root.status;color:root.ink;wrap:word-wrap;}Button{text:"Закрыть";clicked=>{root.about=false;}}}}
+ if root.setup:Rectangle{x:100px;y:100px;width:parent.width - 200px;height:parent.height - 200px;background:root.surface;border-radius:14px;border-width:1px;border-color:#617a9f;
+ VerticalBox{padding:30px;spacing:18px;Text{text:"Настройка принтера Xprinter";color:root.ink;font-size:24px;}Text{text:"Выберите установленную очередь в главном окне. Если совместимый принтер ещё не настроен, используйте мастер Windows: он позволяет выбрать модель и получить драйвер из Windows Update. Наличие очереди и наличие пакета драйвера — разные проверки. Автоматический выбор неизвестной модели не выполняется.";color:root.ink;wrap:word-wrap;}
+ ComboBox{model:root.printers;current-value<=>root.printer;selected(v)=>{root.select-printer(v);}}
+ Button{text:"Создать первый пресет";clicked=>{root.setup=false;root.setup-action(3);root.edit();}}
+ Button{text:"Установить / добавить принтер через Windows";clicked=>{root.setup-action(0);}}Button{text:"Проверить драйверы и PnP-устройства";clicked=>{root.setup-action(4);}}Button{text:"Открыть принтеры Windows";clicked=>{root.setup-action(1);}}Button{text:"Обновить и проверить выбранный принтер";clicked=>{root.refresh();root.setup-action(2);}}Text{text:root.printer-info;color:#8797b2;wrap:word-wrap;}Button{text:"Продолжить / пропустить";clicked=>{root.setup=false;root.setup-action(3);}}Rectangle{vertical-stretch:1;}}
+ }
+}
+
+export struct PresetForm {
+ name:string, width-mm:string, height-mm:string,
+ left-mm:string, top-mm:string, right-mm:string, bottom-mm:string,
+ x-mm:string, y-mm:string, calibration-x:string, calibration-y:string,
+ percent:string, mode:int, rotation:int, centered:bool,
+}
+component Field inherits HorizontalBox {
+ in property <bool> dark:true;
+ in property <string> label;
+ in-out property <string> value;
+ callback changed();
+ Text{text:root.label;color:root.dark?#d8e1f2:#172236;vertical-alignment:center;horizontal-stretch:1;}
+ LineEdit{preferred-width:110px;text<=>root.value;edited=>{root.changed();}}
+}
+export component PresetEditor inherits Window {
+ icon:@image-url("../assets/icons/app.svg");
+ title:"Редактор пресета — Xprinter Quick Print";preferred-width:1100px;preferred-height:820px;min-width:950px;min-height:700px;background:root.dark?#1b2230:#eff2f8;default-font-family:"Segoe UI";
+ in-out property <bool> dark:true;
+ init=>{Palette.color-scheme=root.dark?ColorScheme.dark:ColorScheme.light;}
+ in-out property <PresetForm> form;
+ in-out property <image> preview;
+ in-out property <string> status;
+ callback changed();callback save(bool);callback reset();callback cancel();callback test();callback capture();callback clear-driver();
+ forward-focus:editor-shortcuts;
+ editor-shortcuts := FocusScope{key-pressed(event)=>{if(event.modifiers.control && (event.text=="s" || event.text=="ы")){root.save(false);return accept;}return reject;}
+ HorizontalBox{padding:22px;spacing:22px;
+ VerticalBox{horizontal-stretch:6;Image{source:root.preview;image-fit:contain;vertical-stretch:1;}Text{text:"Общий расчёт геометрии с печатью. Белая область — размер этикетки.";color:root.dark?#94a6bf:#53617a;wrap:word-wrap;}Text{text:root.status;color:root.dark?#d8e1f2:#172236;wrap:word-wrap;}}
+ VerticalBox{horizontal-stretch:4;
+ ScrollView{VerticalBox{spacing:10px;padding:10px;
+ Text{text:"Общие и размер этикетки";color:root.dark?#ffffff:#172236;font-size:20px;}
+ Field{dark:root.dark;label:"Название";value:root.form.name;changed=>{root.form.name=self.value;root.changed();}}
+ Field{dark:root.dark;label:"Ширина, мм";value:root.form.width-mm;changed=>{root.form.width-mm=self.value;root.changed();}}
+ Field{dark:root.dark;label:"Высота, мм";value:root.form.height-mm;changed=>{root.form.height-mm=self.value;root.changed();}}
+ Text{text:"Масштаб и поворот";color:root.dark?#ffffff:#172236;font-size:18px;}
+ ComboBox{model:["Исходный размер 100%","Вписать полностью","Заполнить","Произвольный"];current-index:root.form.mode;selected(v)=>{root.form.mode=self.current-index;root.changed();}}
+ Field{dark:root.dark;label:"Масштаб, %";value:root.form.percent;changed=>{root.form.percent=self.value;root.changed();}}
+ ComboBox{model:["0°","90°","180°","270°"];current-index:root.form.rotation;selected(v)=>{root.form.rotation=self.current-index;root.changed();}}
+ CheckBox{text:"Центрировать";checked:root.form.centered;toggled=>{root.form.centered=self.checked;root.changed();}}
+ Text{text:"Отступы и смещение, мм";color:root.dark?#ffffff:#172236;font-size:18px;}
+ Field{dark:root.dark;label:"Слева";value:root.form.left-mm;changed=>{root.form.left-mm=self.value;root.changed();}}Field{dark:root.dark;label:"Сверху";value:root.form.top-mm;changed=>{root.form.top-mm=self.value;root.changed();}}
+ Field{dark:root.dark;label:"Справа";value:root.form.right-mm;changed=>{root.form.right-mm=self.value;root.changed();}}Field{dark:root.dark;label:"Снизу";value:root.form.bottom-mm;changed=>{root.form.bottom-mm=self.value;root.changed();}}
+ Field{dark:root.dark;label:"Смещение X";value:root.form.x-mm;changed=>{root.form.x-mm=self.value;root.changed();}}Field{dark:root.dark;label:"Смещение Y";value:root.form.y-mm;changed=>{root.form.y-mm=self.value;root.changed();}}
+ Text{text:"Калибровка, мм";color:root.dark?#ffffff:#172236;font-size:18px;}
+ Field{dark:root.dark;label:"Поправка X";value:root.form.calibration-x;changed=>{root.form.calibration-x=self.value;root.changed();}}Field{dark:root.dark;label:"Поправка Y";value:root.form.calibration-y;changed=>{root.form.calibration-y=self.value;root.changed();}}
+ Text{text:"Положительная поправка сдвигает вправо / вниз. Измерьте отклонение пробной этикетки линейкой.";color:root.dark?#94a6bf:#53617a;wrap:word-wrap;}
+ Text{text:"Драйвер";color:root.dark?#ffffff:#172236;font-size:18px;}
+ Button{text:"Настроить через драйвер и сохранить";clicked=>{root.capture();}}
+ Button{text:"Использовать только пресет приложения";clicked=>{root.clear-driver();}}
+ Text{text:"Скорость, плотность, датчик: только через проверяемый снимок драйвера. Универсального управления нет.";color:root.dark?#94a6bf:#53617a;wrap:word-wrap;}
+ }}
+ HorizontalBox{Button{text:"Сохранить";primary:true;clicked=>{root.save(false);}}Button{text:"Как новый";clicked=>{root.save(true);}}}
+ HorizontalBox{Button{text:"Сбросить";clicked=>{root.reset();}}Button{text:"Отмена";clicked=>{root.cancel();}}Button{text:"Тестовая печать";clicked=>{root.test();}}}
+ }} }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
